@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<title>Hello from Flask</title>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title></title>
+</head>
+<body>
+{% for user_id in user_ids %}
+  <a href="http://www.facebook.com/{{ user_id }}">
+    <img src="http://graph.facebook.com/{{ user_id }}/picture" width="300" height="300" />
+  </a>
+{% endfor %}
+</body>
+</html>
