@@ -110,8 +110,7 @@ Until now.
 
 * [bsans](https://github.com/bsans)
 * [ibrt](https://github.com/ibrt)
-* [alex](alex)
-* [jeremy](jeremy)
+* [acakaufman](https://github.com/acakaufman)
 
 This project was made as part of the [Stupid Shit No One Needs & Terrible Ideas Hackathon](http://stupidhackathon.github.io/) in San Francisco, May 9-10, 2015.
 
