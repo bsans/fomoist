@@ -68,7 +68,15 @@ Until now.
    ```
    (then `ctrl-D` to exit the python shell)
 
-7. Get a FB auth token.  Go to [the Facebook Graph Explorer](https://developers.facebook.com/tools/explorer), log into FB, and then click on the right under *Get Token*.  Probably just give yourself all the access permissions (click all the checkboxes).  Copy the long access token.  In the source code, for the variable `AUTH_TOKEN`, assign it to this string.
+7. Get a FB auth token.  Go to [the Facebook Graph Explorer](https://developers.facebook.com/tools/explorer), log into FB, and then click on the right under *Get Token*.  
+ 
+   ![Get access token UI](https://github.com/bsans/fomoist/blob/master/fb_get_access_token_ui.png?raw=true)
+ 
+   Probably just give yourself all the access permissions (click all the checkboxes).  Copy the long access token.  
+   
+   ![Copy access token](https://github.com/bsans/fomoist/blob/master/fb_access_token_ui.png?raw=true)
+   
+   In the source code, for the variable `AUTH_TOKEN`, assign it to this string.
 
 8. Enter a source event id.  Say the event you're interested in using for source times of conflicts is [https://www.facebook.com/events/1567576990198712/](https://www.facebook.com/events/1567576990198712/).  The event id is `1567576990198712`.  Assign this to the `EVENT_ID` variable, as an int or a string.
 
