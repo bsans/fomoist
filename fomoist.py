@@ -1,26 +1,32 @@
 #!python
 
+import json
 import itertools
 import logging
 from datetime import datetime, timedelta
 from multiprocessing import Pool
+import sqlite3
 
 import requests
 import facebook
-from flask import Flask
+from flask import Flask, g
 from flask import render_template
 
 app = Flask(__name__)
 
-EVENT_ID = 1567576990198712  # The Stupid Shit No One Needs & Terrible Ideas Hackathon
+# The Stupid Shit No One Needs & Terrible Ideas Hackathon
+# EVENT_ID = 1567576990198712
+
+# Everyhere Logistics Junior Ranger Program at Sunday Streets
+EVENT_ID = 1423979991242356
+
 # has lat/lon: 37.7623836,-122.4191881
 
-AUTH_TOKEN = 'I_WANNA_SEX_YOU_UP'
+AUTH_TOKEN = 'DO_THE_MACARENA'
 
 TIMEZONE = 'America/Los_Angeles'
 
 PLACE_LAT_LON = '37.7623836,-122.4191881'
-
 
 graph = facebook.GraphAPI(access_token=AUTH_TOKEN)
 
@@ -29,8 +35,44 @@ graph = facebook.GraphAPI(access_token=AUTH_TOKEN)
 
 @app.route("/")
 def shame_fomoists():
-  user_ids = backend()
-  return render_template('fomoists.html', user_ids=user_ids)
+  db = get_db()
+  db.row_factory = sqlite3.Row
+  row = query_db("select * from cache order by id DESC LIMIT 1", one=True)
+  all_events = json.loads(row['all_events'])
+  fomoists = json.loads(row['fomoists'])  # {'id': [event indices]}
+  people = json.loads(row['people'])  # is a dict {'id': {'name': name_val}}
+  return render_template('fomoists.html', user_ids=fomoists.keys(), people=people)
+
+
+@app.route("/write_to_cache")
+def write_cache():
+  backend()
+  return "Done!"
+
+@app.route("/read_from_cache")
+def read_cache():
+  db = get_db()
+  db.row_factory = sqlite3.Row
+  row = query_db("select * from cache order by id DESC LIMIT 1", one=True)
+  return "%s\n%s" % (row['all_events'], row['fomoists'])
+
+
+@app.route("/test_db")
+def test_db():
+  db = get_db()
+  db.row_factory = sqlite3.Row
+  result = []
+  for bla in query_db('select * from test'):
+    logging.warning("%s, %s", bla['id'], bla['name'])
+    result.append(bla)
+
+  return "result: %s" % result
+
+@app.route("/write_to_db")
+def write_to_db():
+  db = get_db()
+  insert_to_db('insert into test(name) values("bla bla");')
+  return ""
 
 
 ### Backend
@@ -66,6 +108,10 @@ def query_for_events_by_location_name(name):
 
 
 def datetime_from_iso(iso_time):
+  """Parse datetime from a ISO8601 time string
+
+  Must be able to accommodate time strings with no UTC offset
+  """
   # "start_time": "2015-05-23T10:00:00-0700",
   # "end_time": "2015-05-23T20:00:00-0700",
   if iso_time is None:
@@ -75,18 +121,25 @@ def datetime_from_iso(iso_time):
     return datetime.strptime(iso_time.rsplit("-", 1)[0], "%Y-%m-%dT%H:%M:%S")
   except ValueError:
     try:
-      return datetime.strptime(iso_time, "%Y-%m-%d")  # assume no UTC offset
+      return datetime.strptime(iso_time, "%Y-%m-%dT%H:%M:%S")  # no UTC offset
     except ValueError:
       try:
-        return datetime.strptime(iso_time, "%Y-%m")  # assume no UTC offset
+        return datetime.strptime(iso_time, "%Y-%m-%d")  # assume no UTC offset
       except ValueError:
         try:
-          return datetime.strptime(iso_time, "%Y")  # assume no UTC offset
-        except:
-          print "what!"
+          return datetime.strptime(iso_time, "%Y-%m")  # assume no UTC offset
+        except ValueError:
+          try:
+            return datetime.strptime(iso_time, "%Y")  # assume no UTC offset
+          except:
+            logging.warning("what! iso_time: %s", iso_time)
 
 
-def time_overlaps(start_time, end_time, event_start, event_end, SLOP_FACTOR=timedelta(days=1)):
+def time_overlaps(start_time,
+                  end_time,
+                  event_start,
+                  event_end,
+                  SLOP_FACTOR=timedelta(0)):
   # end_time can be None
   # CASE 1: edge overlaps
   if (event_start > start_time - SLOP_FACTOR and event_start < end_time + SLOP_FACTOR) or \
@@ -98,6 +151,13 @@ def time_overlaps(start_time, end_time, event_start, event_end, SLOP_FACTOR=time
   # CASE 3: completely within and vice versa
   elif event_end and (event_start < end_time + SLOP_FACTOR and event_end > start_time - SLOP_FACTOR):
     return True
+
+
+def check_time_overlaps(e, end_time, start_time):
+  return time_overlaps(start_time,
+                       end_time,
+                       datetime_from_iso(e['start_time']),
+                       datetime_from_iso(e.get('end_time')))
 
 
 def filter_events(events, start_time, end_time, timezone=TIMEZONE):
@@ -113,17 +173,21 @@ def filter_events(events, start_time, end_time, timezone=TIMEZONE):
   for e in events:
     if not e.get('timezone'):
       events_without_timezone_counter.next()
-      # keep events without timezone for now because they may be relevant
-      filtered_events += [e]
+      # include and time filter events without timezone for now because they may be relevant
+      if check_time_overlaps(e, end_time, start_time):
+        filtered_events += [e]
     elif e['timezone'] == timezone and \
-       time_overlaps(start_time,
-                     end_time,
-                     datetime_from_iso(e['start_time']),
-                     datetime_from_iso(e.get('end_time'))):
+        check_time_overlaps(e, end_time, start_time):
       filtered_events += [e]
 
   return filtered_events
 
+def find_people(events_attendees):
+  people = {}
+  for attendees in events_attendees:
+    for attendee in attendees:
+      people[attendee['id']] = { 'name': attendee['name'] }
+  return people
 
 def find_fomoists(events_attendees, rsvp_statuses=['attending']):
   """
@@ -206,6 +270,9 @@ def get_and_filter_events(place):
 def backend():
   global event
 
+  # event_id is the starting point for querying with location and times to fan out
+  # into who is "attending" to events
+
   event = query_for_event(EVENT_ID)
   logging.warning("event fetched: %s", event)
   places = query_for_places()
@@ -231,14 +298,73 @@ def backend():
   logging.warning("total attendees found: %s", total_attendees)
 
   fomoists = find_fomoists(all_events_attendees)
+  people = find_people(all_events_attendees)
   # is a dict, keyed by uid
 
   num_fomoists = len(fomoists)
   logging.warning('total fomoists double-booked or worse: %s', num_fomoists)
   scoped_all_events_counter = all_events_counter.next()
   scoped_events_without_timezone_counter = events_without_timezone_counter.next()
-  return fomoists.keys()
 
+  serialized_all_events = json.dumps(all_events)
+  serialized_fomoists = json.dumps(fomoists)
+  serialized_people = json.dumps(people)
+  insert_to_db('insert into cache(all_events, fomoists, people) values(?,?, ?)',
+               (serialized_all_events, serialized_fomoists, serialized_people))
+
+
+### DB
+
+
+DATABASE = '/Users/Bodhi/projects/fomoist/database.db'
+
+
+def connect_to_database():
+  return sqlite3.connect(DATABASE)
+
+
+def get_db():
+  logging.warning("connecting to db")
+  db = getattr(g, '_database', None)
+  if db is None:
+      db = g._database = connect_to_database()
+  return db
+
+
+def query_db(query, args=(), one=False):
+  logging.warning("querying db for: %s" % query)
+  cur = get_db().execute(query, args)
+  rv = cur.fetchall()
+  cur.close()
+  return (rv[0] if rv else None) if one else rv
+
+
+def insert_to_db(query, args=()):
+  cur = get_db().execute(query, args)
+  logging.warn(cur)
+  get_db().commit()
+  cur.close()
+
+
+@app.teardown_appcontext
+def close_connection(exception):
+  logging.warning("closing db connection")
+  db = getattr(g, '_database', None)
+  if db is not None:
+      db.close()
+
+
+def init_db():
+  """Special function only needed during initial setup
+  """
+  with app.app_context():
+      db = get_db()
+      with app.open_resource('schema.sql', mode='r') as f:
+          db.cursor().executescript(f.read())
+      db.commit()
+
+
+### Magic
 
 if __name__ == "__main__":
   app.run(debug=True)
